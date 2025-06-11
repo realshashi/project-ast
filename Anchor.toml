@@ -5,6 +5,10 @@ skip-lint = false
 [toolchain]
 anchor_version = "0.31.1"
 
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
 [programs.localnet]
 launchpad = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
 marketplace = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
@@ -12,10 +16,6 @@ token_factory = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
 
 [registry]
 url = "https://api.apr.dev"
-
-[provider]
-cluster = "Localnet"
-wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts" 

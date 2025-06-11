@@ -1,81 +1,47 @@
 # Dependencies
-node_modules/
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+node_modules
+.pnp
+.pnp.js
 
-# Build output
-frontend/dist/
-frontend/build/
-frontend/.next/
-frontend/out/
+# Testing
+coverage
 
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
+# Production
+build
+dist
+out
 
-# Rust specific
-/target/
-**/*.rs.bk
-**/*.rs.orig
-**/*.rs.save
-**/*.rs~
-**/*.rs.swp
-**/*.rs.swo
-
-# OS specific
+# Misc
 .DS_Store
-Thumbs.db
+.env*
+!.env.example
+*.pem
 
-# Debug logs
-*.log
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Local development
-frontend/.vite/
-frontend/node_modules/.vite/
+# IDEs and editors
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# IDE debug files
-frontend/.vscode/vsc-extension-activate.cbp
-frontend/.vscode/vsc-extension-activate.js
-frontend/.vscode/vsc-extension-activate.js.map
-
-# Rust cache
+# Rust / Anchor specific
+target
 **/*.rs.bk
-**/*.rs.orig
-**/*.rs.save
-**/*.rs~
-**/*.rs.swp
-**/*.rs.swo
+.anchor
+.crates*
+test-ledger
+*-keypair.json
 
-# Rust build artifacts
-**/*.so
-**/*.dylib
-**/*.dll
-**/*.rmeta
-**/*.rlib
-**/*.dSYM
-
-# Rust documentation
-**/target/doc/
-
-# Rust test results
-**/target/test/
-**/target/debug/test/
-**/target/release/test/
-
-# Rust coverage reports
-**/target/cov/
-**/target/coverage/
-**/target/debug/cov/
-**/target/release/cov/
-
-# Rust benchmark results
-**/target/bench/
-**/target/debug/bench/
-**/target/release/bench/
-
+# Vercel
 .vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
