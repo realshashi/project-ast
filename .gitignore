@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build output
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Rust specific
+/target/
+**/*.rs.bk
+**/*.rs.orig
+**/*.rs.save
+**/*.rs~
+**/*.rs.swp
+**/*.rs.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Debug logs
+*.log
+
+# Local development
+frontend/.vite/
+frontend/node_modules/.vite/
+
+# IDE debug files
+frontend/.vscode/vsc-extension-activate.cbp
+frontend/.vscode/vsc-extension-activate.js
+frontend/.vscode/vsc-extension-activate.js.map
+
+# Rust cache
+**/*.rs.bk
+**/*.rs.orig
+**/*.rs.save
+**/*.rs~
+**/*.rs.swp
+**/*.rs.swo
+
+# Rust build artifacts
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.rmeta
+**/*.rlib
+**/*.dSYM
+
+# Rust documentation
+**/target/doc/
+
+# Rust test results
+**/target/test/
+**/target/debug/test/
+**/target/release/test/
+
+# Rust coverage reports
+**/target/cov/
+**/target/coverage/
+**/target/debug/cov/
+**/target/release/cov/
+
+# Rust benchmark results
+**/target/bench/
+**/target/debug/bench/
+**/target/release/bench/

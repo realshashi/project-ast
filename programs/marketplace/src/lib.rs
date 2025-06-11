@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 
-declare_id!("MkP9xH3J9j9K9j9K9j9K9j9K9j9K9j9K9j9K9j9K9");
+declare_id!("Marketplace11111111111111111111111111111111");
 
 #[program]
 pub mod marketplace {
@@ -13,22 +13,29 @@ pub mod marketplace {
         price: u64,
         amount: u64,
     ) -> Result<()> {
+        let clock = Clock::get()?;
         let listing = &mut ctx.accounts.listing;
+        
+        // Input validation
+        require!(price > 0, MarketplaceError::InvalidPrice);
+        require!(amount > 0, MarketplaceError::InvalidAmount);
+        
         listing.seller = ctx.accounts.seller.key();
         listing.mint = ctx.accounts.mint.key();
         listing.price = price;
         listing.amount = amount;
-        listing.created_at = Clock::get()?.unix_timestamp;
+        listing.created_at = clock.unix_timestamp;
 
         // Transfer tokens to vault
         token::transfer(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 Transfer {
                     from: ctx.accounts.seller_token_account.to_account_info(),
                     to: ctx.accounts.vault.to_account_info(),
                     authority: ctx.accounts.seller.to_account_info(),
                 },
+                &[&[b"listing_vault", ctx.accounts.listing.key().as_ref()][..]]
             ),
             amount,
         )?;
@@ -37,12 +44,19 @@ pub mod marketplace {
     }
 
     pub fn buy_listing(ctx: Context<BuyListing>, amount: u64) -> Result<()> {
+        let clock = Clock::get()?;
         let listing = &mut ctx.accounts.listing;
+        
+        // Validate purchase
         require!(listing.amount >= amount, MarketplaceError::InsufficientAmount);
-
+        require!(amount > 0, MarketplaceError::InvalidAmount);
+        
         // Transfer SOL from buyer to seller
         let transfer_amount = listing.price.checked_mul(amount)
             .ok_or(MarketplaceError::Overflow)?;
+        
+        require!(transfer_amount > 0, MarketplaceError::InvalidAmount);
+        require!(ctx.accounts.buyer.lamports() >= transfer_amount, MarketplaceError::InsufficientFunds);
         
         **ctx.accounts.buyer.try_borrow_mut_lamports()? = ctx.accounts.buyer.lamports()
             .checked_sub(transfer_amount)
@@ -159,7 +173,7 @@ pub struct Listing {
 }
 
 impl Listing {
-    pub const LEN: usize = 32 + 32 + 8 + 8 + 8;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 8;
 }
 
 #[error_code]

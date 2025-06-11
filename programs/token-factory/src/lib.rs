@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use anchor_spl::associated_token::AssociatedToken;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("TokenFactory11111111111111111111111111111111");
 
 #[program]
 pub mod token_factory {
@@ -15,24 +15,33 @@ pub mod token_factory {
         decimals: u8,
         total_supply: u64,
     ) -> Result<()> {
+        let clock = Clock::get()?;
         let memecoin = &mut ctx.accounts.memecoin;
+        
+        // Input validation
+        require!(decimals <= 9, TokenFactoryError::InvalidDecimals);
+        require!(total_supply > 0, TokenFactoryError::InvalidSupply);
+        require!(name.len() <= 32, TokenFactoryError::NameTooLong);
+        require!(symbol.len() <= 10, TokenFactoryError::SymbolTooLong);
+        
         memecoin.authority = ctx.accounts.authority.key();
         memecoin.mint = ctx.accounts.mint.key();
         memecoin.name = name;
         memecoin.symbol = symbol;
         memecoin.decimals = decimals;
         memecoin.total_supply = total_supply;
-        memecoin.created_at = Clock::get()?.unix_timestamp;
+        memecoin.created_at = clock.unix_timestamp;
 
         // Mint initial supply to creator
         token::mint_to(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::MintTo {
                     mint: ctx.accounts.mint.to_account_info(),
                     to: ctx.accounts.creator_token_account.to_account_info(),
                     authority: ctx.accounts.authority.to_account_info(),
                 },
+                &[&[b"memecoin", ctx.accounts.memecoin.key().as_ref()][..]]
             ),
             total_supply,
         )?;
@@ -89,5 +98,17 @@ pub struct Memecoin {
 }
 
 impl Memecoin {
-    pub const LEN: usize = 32 + 32 + 32 + 8 + 1 + 8 + 8;
-} 
+    pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 1 + 8 + 8;
+}
+
+#[error]
+pub enum TokenFactoryError {
+    #[msg("Invalid decimals")]
+    InvalidDecimals,
+    #[msg("Invalid supply")]
+    InvalidSupply,
+    #[msg("Name too long")]
+    NameTooLong,
+    #[msg("Symbol too long")]
+    SymbolTooLong,
+}
