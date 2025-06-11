@@ -20,7 +20,7 @@
       "@/*": ["src/*"]
     },
     "outDir": "./dist",
-    "rootDir": "./frontend/src"
+    "rootDir": "./src"
   },
   "include": ["src"]
 }
