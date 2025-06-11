@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Mint};
 use anchor_spl::associated_token::AssociatedToken;
+mod state;
+use state::*;
 
 declare_id!("Launchpad11111111111111111111111111111111");
 
@@ -16,6 +18,7 @@ pub mod launchpad {
         end_time: i64,
         min_contribution: u64,
         max_contribution: u64,
+        market_cap_target: u64,
     ) -> Result<()> {
         let clock = Clock::get()?;
         let launch = &mut ctx.accounts.launch;
@@ -38,170 +41,110 @@ pub mod launchpad {
         launch.min_contribution = min_contribution;
         launch.max_contribution = max_contribution;
         launch.created_at = clock.unix_timestamp;
+        launch.market_cap_target = market_cap_target;
+        launch.followers_count = 0;
+        launch.auto_graduate_threshold = market_cap_target;
 
-        // Transfer tokens to vault
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: ctx.accounts.authority_token_account.to_account_info(),
-                    to: ctx.accounts.vault.to_account_info(),
-                    authority: ctx.accounts.authority.to_account_info(),
-                },
-                &[&[b"launch_vault", ctx.accounts.launch.key().as_ref()][..]]
-            ),
-            total_supply,
-        )?;
+        // Initialize user profile if it doesn't exist
+        if ctx.accounts.user_profile.data_is_empty() {
+            let user_profile = &mut ctx.accounts.user_profile;
+            user_profile.user = ctx.accounts.authority.key();
+            user_profile.following = vec![];
+            user_profile.followers = vec![];
+            user_profile.created_tokens = vec![ctx.accounts.mint.key()];
+            user_profile.trusted_status = false;
+            user_profile.reputation_score = 0;
+        }
 
         Ok(())
     }
 
-    pub fn participate(ctx: Context<Participate>, amount: u64) -> Result<()> {
-        let clock = Clock::get()?;
+    pub fn follow_user(ctx: Context<FollowUser>) -> Result<()> {
+        let user_profile = &mut ctx.accounts.user_profile;
+        let target_profile = &mut ctx.accounts.target_profile;
+
+        if !user_profile.following.contains(&target_profile.user) {
+            user_profile.following.push(target_profile.user);
+            target_profile.followers.push(user_profile.user);
+        }
+
+        Ok(())
+    }
+
+    pub fn participate_launch(
+        ctx: Context<ParticipateLaunch>,
+        amount: u64
+    ) -> Result<()> {
         let launch = &mut ctx.accounts.launch;
-        
-        // Validate participation
-        require!(launch.remaining_supply > 0, LaunchpadError::SoldOut);
-        require!(clock.unix_timestamp >= launch.start_time, LaunchpadError::NotStarted);
-        require!(clock.unix_timestamp <= launch.end_time, LaunchpadError::Ended);
-        require!(amount >= launch.min_contribution, LaunchpadError::BelowMinContribution);
-        require!(amount <= launch.max_contribution, LaunchpadError::AboveMaxContribution);
-        require!(amount <= launch.remaining_supply, LaunchpadError::InsufficientSupply);
-        
-        // Update launch state
-        launch.remaining_supply = launch.remaining_supply
-            .checked_sub(amount)
-            .ok_or(LaunchpadError::MathOverflow)?;
+        let clock = Clock::get()?;
 
         require!(
-            clock.unix_timestamp >= launch.start_time && clock.unix_timestamp <= launch.end_time,
-            LaunchpadError::LaunchNotActive
+            clock.unix_timestamp >= launch.start_time,
+            LaunchpadError::LaunchNotStarted
         );
-        
-        let token_amount = amount.checked_mul(launch.total_supply)
-            .ok_or(LaunchpadError::Overflow)?
-            .checked_div(launch.price)
-            .ok_or(LaunchpadError::Overflow)?;
+        require!(
+            clock.unix_timestamp <= launch.end_time,
+            LaunchpadError::LaunchEnded
+        );
+        require!(
+            amount >= launch.min_contribution,
+            LaunchpadError::BelowMinContribution
+        );
+        require!(
+            amount <= launch.max_contribution,
+            LaunchpadError::AboveMaxContribution
+        );
 
-        // Transfer SOL from participant to authority
-        **ctx.accounts.participant.try_borrow_mut_lamports()? = ctx.accounts.participant.lamports()
-            .checked_sub(amount)
-            .ok_or(LaunchpadError::InsufficientFunds)?;
-        
-        **ctx.accounts.authority.try_borrow_mut_lamports()? = ctx.accounts.authority.lamports()
-            .checked_add(amount)
-            .ok_or(LaunchpadError::Overflow)?;
-
-        // Transfer tokens from vault to participant
+        // Transfer tokens
         token::transfer(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.participant_token_account.to_account_info(),
-                    authority: ctx.accounts.launchpad.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.user_token_account.to_account_info(),
+                    to: ctx.accounts.launch_vault.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
                 },
             ),
-            token_amount,
+            amount,
         )?;
+
+        launch.remaining_supply = launch.remaining_supply
+            .checked_sub(amount)
+            .ok_or(LaunchpadError::InvalidCalculation)?;
+
+        // Update market cap
+        let market_cap = launch.price
+            .checked_mul(launch.total_supply - launch.remaining_supply)
+            .ok_or(LaunchpadError::InvalidCalculation)?;
+
+        // Check if we hit the graduation threshold
+        if market_cap >= launch.auto_graduate_threshold {
+            // Trigger graduation process
+            // This would integrate with the token-factory program
+        }
 
         Ok(())
     }
-}
-
-#[derive(Accounts)]
-pub struct CreateLaunch<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    #[account(
-        init,
-        seeds = [b"launch".as_ref(), authority.key().as_ref()],
-        bump,
-        payer = authority,
-        space = Launch::LEN
-    )]
-    pub launch: Account<'info, Launch>,
-    #[account(mut)]
-    pub authority_token_account: Account<'info, TokenAccount>,
-    #[account(
-        init,
-        payer = authority,
-        associated_token::mint = mint,
-        associated_token::authority = launch
-    )]
-    pub vault: Account<'info, TokenAccount>,
-    pub mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
-pub struct Participate<'info> {
-    #[account(mut)]
-    pub participant: Signer<'info>,
-    #[account(mut)]
-    pub authority: SystemAccount<'info>,
-    #[account(
-        mut,
-        seeds = [b"launch", launch.mint.as_ref()],
-        bump
-    )]
-    pub launch: Account<'info, Launch>,
-    #[account(
-        mut,
-        associated_token::mint = launch.mint,
-        associated_token::authority = participant,
-    )]
-    pub participant_token_account: Account<'info, TokenAccount>,
-    #[account(
-        mut,
-        seeds = [b"vault", launch.mint.as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, TokenAccount>,
-    /// CHECK: This is the launchpad PDA
-    #[account(
-        seeds = [b"launchpad"],
-        bump
-    )]
-    pub launchpad: AccountInfo<'info>,
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-}
-
-#[account]
-pub struct Launch {
-    pub authority: Pubkey,
-    pub mint: Pubkey,
-    pub price: u64,
-    pub total_supply: u64,
-    pub remaining_supply: u64,
-    pub start_time: i64,
-    pub end_time: i64,
-    pub min_contribution: u64,
-    pub max_contribution: u64,
-    pub created_at: i64,
-}
-
-impl Launch {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 }
 
 #[error_code]
 pub enum LaunchpadError {
-    #[msg("Launch is not active")]
-    LaunchNotActive,
-    #[msg("Contribution below minimum")]
+    #[msg("Invalid price")]
+    InvalidPrice,
+    #[msg("Invalid supply")]
+    InvalidSupply,
+    #[msg("Invalid start time")]
+    InvalidStartTime,
+    #[msg("Invalid end time")]
+    InvalidEndTime,
+    #[msg("Below minimum contribution")]
     BelowMinContribution,
-    #[msg("Contribution above maximum")]
+    #[msg("Above maximum contribution")]
     AboveMaxContribution,
-    #[msg("Insufficient supply")]
-    InsufficientSupply,
-    #[msg("Insufficient funds")]
-    InsufficientFunds,
-    #[msg("Arithmetic overflow")]
-    Overflow,
-} 
+    #[msg("Launch not started")]
+    LaunchNotStarted,
+    #[msg("Launch ended")]
+    LaunchEnded,
+    #[msg("Invalid calculation")]
+    InvalidCalculation,
+}

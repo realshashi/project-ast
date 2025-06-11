@@ -2,10 +2,13 @@
 seeds = false
 skip-lint = false
 
+[toolchain]
+anchor_version = "0.31.1"
+
 [programs.localnet]
-launchpad = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
-marketplace = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
-token_factory = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+launchpad = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
+marketplace = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
+token_factory = "FMc58Fuua7us6ymQn4GqrNJPhyV1HvAtGbEeRGj7s2m7"
 
 [registry]
 url = "https://api.apr.dev"

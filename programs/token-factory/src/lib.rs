@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use anchor_spl::associated_token::AssociatedToken;
+mod state;
+use state::*;
 
 declare_id!("TokenFactory11111111111111111111111111111111");
 
@@ -14,6 +16,8 @@ pub mod token_factory {
         symbol: String,
         decimals: u8,
         total_supply: u64,
+        image_url: String,
+        description: Option<String>,
     ) -> Result<()> {
         let clock = Clock::get()?;
         let memecoin = &mut ctx.accounts.memecoin;
@@ -23,14 +27,31 @@ pub mod token_factory {
         require!(total_supply > 0, TokenFactoryError::InvalidSupply);
         require!(name.len() <= 32, TokenFactoryError::NameTooLong);
         require!(symbol.len() <= 10, TokenFactoryError::SymbolTooLong);
+        require!(image_url.len() <= 200, TokenFactoryError::ImageUrlTooLong);
         
+        // Initialize token data
         memecoin.authority = ctx.accounts.authority.key();
         memecoin.mint = ctx.accounts.mint.key();
         memecoin.name = name;
         memecoin.symbol = symbol;
         memecoin.decimals = decimals;
         memecoin.total_supply = total_supply;
+        memecoin.image_url = image_url;
         memecoin.created_at = clock.unix_timestamp;
+        memecoin.market_cap = 0;
+        memecoin.is_graduated = false;
+        memecoin.liquidity_pool = None;
+        memecoin.raydium_pool = None;
+
+        // Initialize metadata
+        let metadata = &mut ctx.accounts.metadata;
+        metadata.name = memecoin.name.clone();
+        metadata.symbol = memecoin.symbol.clone();
+        metadata.image_url = image_url;
+        metadata.description = description;
+        metadata.website = None;
+        metadata.twitter = None;
+        metadata.telegram = None;
 
         // Mint initial supply to creator
         token::mint_to(
@@ -48,60 +69,57 @@ pub mod token_factory {
 
         Ok(())
     }
+
+    pub fn update_metadata(
+        ctx: Context<UpdateMetadata>,
+        website: Option<String>,
+        twitter: Option<String>,
+        telegram: Option<String>,
+    ) -> Result<()> {
+        let metadata = &mut ctx.accounts.metadata;
+        let memecoin = &ctx.accounts.memecoin;
+
+        require!(
+            ctx.accounts.authority.key() == memecoin.authority,
+            TokenFactoryError::Unauthorized
+        );
+
+        if let Some(website) = website {
+            require!(website.len() <= 100, TokenFactoryError::WebsiteUrlTooLong);
+            metadata.website = Some(website);
+        }
+
+        if let Some(twitter) = twitter {
+            require!(twitter.len() <= 50, TokenFactoryError::SocialUrlTooLong);
+            metadata.twitter = Some(twitter);
+        }
+
+        if let Some(telegram) = telegram {
+            require!(telegram.len() <= 50, TokenFactoryError::SocialUrlTooLong);
+            metadata.telegram = Some(telegram);
+        }
+
+        Ok(())
+    }
+
+    pub fn graduate_token(ctx: Context<GraduateToken>) -> Result<()> {
+        let memecoin = &mut ctx.accounts.memecoin;
+        
+        require!(!memecoin.is_graduated, TokenFactoryError::AlreadyGraduated);
+        require!(
+            memecoin.market_cap >= 1_000_000, // Example: 1M minimum market cap
+            TokenFactoryError::InsufficientMarketCap
+        );
+
+        // Setup Raydium pool logic would go here
+        memecoin.is_graduated = true;
+        // Additional graduation logic...
+
+        Ok(())
+    }
 }
 
-#[derive(Accounts)]
-pub struct CreateMemecoin<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + Memecoin::LEN,
-        seeds = [b"memecoin", mint.key().as_ref()],
-        bump
-    )]
-    pub memecoin: Account<'info, Memecoin>,
-
-    #[account(
-        init,
-        payer = authority,
-        mint::decimals = 9,
-        mint::authority = authority,
-    )]
-    pub mint: Account<'info, Mint>,
-
-    #[account(
-        init,
-        payer = authority,
-        associated_token::mint = mint,
-        associated_token::authority = authority,
-    )]
-    pub creator_token_account: Account<'info, TokenAccount>,
-
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[account]
-pub struct Memecoin {
-    pub authority: Pubkey,
-    pub mint: Pubkey,
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
-    pub total_supply: u64,
-    pub created_at: i64,
-}
-
-impl Memecoin {
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 1 + 8 + 8;
-}
-
-#[error]
+#[error_code]
 pub enum TokenFactoryError {
     #[msg("Invalid decimals")]
     InvalidDecimals,
@@ -111,4 +129,16 @@ pub enum TokenFactoryError {
     NameTooLong,
     #[msg("Symbol too long")]
     SymbolTooLong,
+    #[msg("Image URL too long")]
+    ImageUrlTooLong,
+    #[msg("Website URL too long")]
+    WebsiteUrlTooLong,
+    #[msg("Social URL too long")]
+    SocialUrlTooLong,
+    #[msg("Unauthorized")]
+    Unauthorized,
+    #[msg("Token already graduated")]
+    AlreadyGraduated,
+    #[msg("Insufficient market cap for graduation")]
+    InsufficientMarketCap,
 }

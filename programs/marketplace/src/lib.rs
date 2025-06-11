@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
+mod state;
+use state::*;
 
 declare_id!("Marketplace11111111111111111111111111111111");
 
@@ -10,32 +12,45 @@ pub mod marketplace {
 
     pub fn create_listing(
         ctx: Context<CreateListing>,
-        price: u64,
+        initial_price: u64,
         amount: u64,
+        curve_type: BondingCurveType,
+        k_value: u64,
     ) -> Result<()> {
         let clock = Clock::get()?;
         let listing = &mut ctx.accounts.listing;
         
         // Input validation
-        require!(price > 0, MarketplaceError::InvalidPrice);
+        require!(initial_price > 0, MarketplaceError::InvalidPrice);
         require!(amount > 0, MarketplaceError::InvalidAmount);
+        require!(k_value > 0, MarketplaceError::InvalidKValue);
         
         listing.seller = ctx.accounts.seller.key();
         listing.mint = ctx.accounts.mint.key();
-        listing.price = price;
+        listing.price = initial_price;
         listing.amount = amount;
         listing.created_at = clock.unix_timestamp;
+        listing.curve_type = curve_type;
+        listing.k_value = k_value;
+
+        // Create liquidity pool
+        let pool = &mut ctx.accounts.liquidity_pool;
+        pool.mint = ctx.accounts.mint.key();
+        pool.pool_token_a = ctx.accounts.pool_token_a.key();
+        pool.pool_token_b = ctx.accounts.pool_token_b.key();
+        pool.total_liquidity = 0;
+        pool.auto_inject_threshold = 1_000_000; // Example: 1M threshold
+        pool.is_graduated = false;
 
         // Transfer tokens to vault
         token::transfer(
-            CpiContext::new_with_signer(
+            CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
                 Transfer {
                     from: ctx.accounts.seller_token_account.to_account_info(),
                     to: ctx.accounts.vault.to_account_info(),
                     authority: ctx.accounts.seller.to_account_info(),
                 },
-                &[&[b"listing_vault", ctx.accounts.listing.key().as_ref()][..]]
             ),
             amount,
         )?;
@@ -43,145 +58,74 @@ pub mod marketplace {
         Ok(())
     }
 
-    pub fn buy_listing(ctx: Context<BuyListing>, amount: u64) -> Result<()> {
-        let clock = Clock::get()?;
+    pub fn buy_tokens(ctx: Context<BuyTokens>, amount: u64) -> Result<()> {
         let listing = &mut ctx.accounts.listing;
+        let pool = &mut ctx.accounts.liquidity_pool;
         
-        // Validate purchase
-        require!(listing.amount >= amount, MarketplaceError::InsufficientAmount);
-        require!(amount > 0, MarketplaceError::InvalidAmount);
-        
-        // Transfer SOL from buyer to seller
-        let transfer_amount = listing.price.checked_mul(amount)
-            .ok_or(MarketplaceError::Overflow)?;
-        
-        require!(transfer_amount > 0, MarketplaceError::InvalidAmount);
-        require!(ctx.accounts.buyer.lamports() >= transfer_amount, MarketplaceError::InsufficientFunds);
-        
-        **ctx.accounts.buyer.try_borrow_mut_lamports()? = ctx.accounts.buyer.lamports()
-            .checked_sub(transfer_amount)
-            .ok_or(MarketplaceError::InsufficientFunds)?;
-        
-        **ctx.accounts.seller.try_borrow_mut_lamports()? = ctx.accounts.seller.lamports()
-            .checked_add(transfer_amount)
-            .ok_or(MarketplaceError::Overflow)?;
-
-        // Transfer tokens from vault to buyer
-        token::transfer(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.buyer_token_account.to_account_info(),
-                    authority: ctx.accounts.marketplace.to_account_info(),
-                },
-            ),
+        // Calculate price based on bonding curve
+        let price = calculate_price(
+            listing.price,
+            listing.amount,
             amount,
+            &listing.curve_type,
+            listing.k_value,
         )?;
 
-        listing.amount = listing.amount.checked_sub(amount)
+        // Update liquidity pool
+        pool.total_liquidity = pool.total_liquidity.checked_add(price)
             .ok_or(MarketplaceError::Overflow)?;
+
+        // Check if we need to graduate to Raydium
+        if pool.total_liquidity >= pool.auto_inject_threshold && !pool.is_graduated {
+            // Inject liquidity into Raydium
+            inject_liquidity_to_raydium(ctx, pool)?;
+        }
+
+        // Execute trade
+        execute_trade(ctx, amount, price)?;
 
         Ok(())
     }
 }
 
-#[derive(Accounts)]
-pub struct CreateListing<'info> {
-    #[account(mut)]
-    pub seller: Signer<'info>,
-
-    #[account(
-        init,
-        payer = seller,
-        space = 8 + Listing::LEN,
-        seeds = [b"listing", mint.key().as_ref(), seller.key().as_ref()],
-        bump
-    )]
-    pub listing: Account<'info, Listing>,
-
-    pub mint: Account<'info, anchor_spl::token::Mint>,
-
-    #[account(
-        mut,
-        associated_token::mint = mint,
-        associated_token::authority = seller,
-    )]
-    pub seller_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        seeds = [b"vault", mint.key().as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, TokenAccount>,
-
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
-pub struct BuyListing<'info> {
-    #[account(mut)]
-    pub buyer: Signer<'info>,
-
-    #[account(mut)]
-    pub seller: SystemAccount<'info>,
-
-    #[account(
-        mut,
-        seeds = [b"listing", listing.mint.as_ref(), listing.seller.as_ref()],
-        bump
-    )]
-    pub listing: Account<'info, Listing>,
-
-    #[account(
-        mut,
-        associated_token::mint = listing.mint,
-        associated_token::authority = buyer,
-    )]
-    pub buyer_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        seeds = [b"vault", listing.mint.as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, TokenAccount>,
-
-    /// CHECK: This is the marketplace PDA
-    #[account(
-        seeds = [b"marketplace"],
-        bump
-    )]
-    pub marketplace: AccountInfo<'info>,
-
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-}
-
-#[account]
-pub struct Listing {
-    pub seller: Pubkey,
-    pub mint: Pubkey,
-    pub price: u64,
-    pub amount: u64,
-    pub created_at: i64,
-}
-
-impl Listing {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 8;
+// Helper functions
+fn calculate_price(
+    initial_price: u64,
+    total_supply: u64,
+    amount: u64,
+    curve_type: &BondingCurveType,
+    k_value: u64,
+) -> Result<u64> {
+    match curve_type {
+        BondingCurveType::Linear => {
+            // P = P0 + kx
+            Ok(initial_price.checked_add(k_value.checked_mul(amount)
+                .ok_or(MarketplaceError::Overflow)?)
+                .ok_or(MarketplaceError::Overflow)?)
+        },
+        BondingCurveType::Exponential => {
+            // P = P0 * e^(kx)
+            // Simplified implementation
+            Ok(initial_price.checked_mul(k_value)
+                .ok_or(MarketplaceError::Overflow)?)
+        },
+        // Add other curve types...
+        _ => Err(MarketplaceError::UnsupportedCurveType.into()),
+    }
 }
 
 #[error_code]
 pub enum MarketplaceError {
-    #[msg("Insufficient amount in listing")]
-    InsufficientAmount,
-    #[msg("Insufficient funds")]
-    InsufficientFunds,
+    #[msg("Invalid price")]
+    InvalidPrice,
+    #[msg("Invalid amount")]
+    InvalidAmount,
+    #[msg("Invalid k value")]
+    InvalidKValue,
     #[msg("Arithmetic overflow")]
     Overflow,
-} 
+    #[msg("Unsupported curve type")]
+    UnsupportedCurveType,
+    #[msg("Insufficient liquidity")]
+    InsufficientLiquidity,
+}

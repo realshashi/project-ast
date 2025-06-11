@@ -1,9 +1,5 @@
 import { FC, ReactNode, useMemo, createContext, useContext, useState, useEffect } from "react";
-import {
-  ConnectionProvider,
-  WalletProvider as SolanaWalletProvider,
-  useWallet as useSolanaWallet,
-} from "@solana/wallet-adapter-react";
+import { ConnectionProvider, WalletProvider as SolanaWalletProvider, useWallet as useSolanaWallet } from "@solana/wallet-adapter-react";
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
@@ -32,7 +28,16 @@ const WalletProviderComponent: FC<Props> = ({ children }) => {
   const endpoint = useMemo(() => clusterApiUrl(network), [network]);
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
   const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const solanaWallet = useSolanaWallet();
+
+  useEffect(() => {
+    if (solanaWallet && !solanaWallet.publicKey) {
+      setError('Wallet not connected');
+    } else {
+      setError(null);
+    }
+  }, [solanaWallet]);
 
   const value = useMemo<WalletState>(() => ({
     connecting,
@@ -41,18 +46,33 @@ const WalletProviderComponent: FC<Props> = ({ children }) => {
 
   useEffect(() => {
     if (solanaWallet) {
-      const connectHandler = () => setConnecting(true);
-      const disconnectHandler = () => setConnecting(false);
-      
-      (solanaWallet as any).on('connect', connectHandler);
-      (solanaWallet as any).on('disconnect', disconnectHandler);
+      try {
+        const connectHandler = () => setConnecting(true);
+        const disconnectHandler = () => setConnecting(false);
 
-      return () => {
-        (solanaWallet as any).off('connect', connectHandler);
-        (solanaWallet as any).off('disconnect', disconnectHandler);
-      };
+        // Handle connect/disconnect events
+        solanaWallet.on('connect', connectHandler);
+        solanaWallet.on('disconnect', disconnectHandler);
+
+        return () => {
+          solanaWallet.off('connect', connectHandler);
+          solanaWallet.off('disconnect', disconnectHandler);
+        };
+      } catch (error) {
+        console.error('Error setting up wallet events:', error);
+        setConnecting(false);
+      }
     }
   }, [solanaWallet]);
+
+  if (error) {
+    return <div className="min-h-screen flex items-center justify-center bg-dark-primary text-dark-text">
+      <div className="text-center p-4">
+        <h2 className="text-xl font-semibold mb-2">Error</h2>
+        <p className="text-red-500">{error}</p>
+      </div>
+    </div>;
+  }
 
   return (
     <WalletContext.Provider value={value}>

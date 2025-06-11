@@ -8,12 +8,58 @@ const CreateToken: FC = () => {
     symbol: "",
     decimals: "9",
     totalSupply: "",
+    imageUrl: "",
+    description: "",
+    website: "",
+    twitter: "",
+    telegram: "",
+    initialPrice: "",
+    curveType: "Linear" as const,
   });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement token creation logic
-    console.log("Creating token:", formData);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      if (!connected) {
+        throw new Error("Please connect your wallet first");
+      }
+
+      // Create token with metadata
+      const tx = await program.methods
+        .createMemecoin(
+          formData.name,
+          formData.symbol,
+          Number(formData.decimals),
+          new BN(formData.totalSupply),
+          formData.imageUrl,
+          formData.description || null
+        )
+        .rpc();
+
+      // Create market listing with bonding curve
+      await program.methods
+        .createListing(
+          new BN(formData.initialPrice),
+          new BN(formData.totalSupply),
+          formData.curveType,
+          new BN(1) // Default k-value
+        )
+        .rpc();
+
+      console.log("Token created successfully:", tx);
+    } catch (err) {
+      console.error("Error creating token:", err);
+      setError(err instanceof Error ? err.message : "Failed to create token");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
